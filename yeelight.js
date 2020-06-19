@@ -3,6 +3,55 @@
 const net = require('net');
 const { EventEmitter } = require('events');
 
+class Rgb {
+  constructor(r, g, b) {
+    this.r = r;
+    this.g = g;
+    this.b = b;
+  }
+
+  get value() {
+    return this.r * 65536 + this.g * 256 + this.b;
+  }
+}
+
+const EXPRESSION_MODE = {
+  COLOR: 1,
+  TEMPERATURE: 2,
+  SLEEP: 7
+};
+
+class FlowExpression {
+  constructor(duration = 500, value, mode = EXPRESSION_MODE.COLOR, brightness = 100) {
+    this.duration = duration;
+    this.mode = mode;
+    this.value = value;
+    this.brightness = brightness;
+  }
+
+  build() {
+    return [this.duration, this.mode, this.value.value, this.brightness].join(',');
+  }
+}
+
+const FLOW_FALLBACK = {
+  RECOVER: 0,
+  STAY: 1,
+  OFF: 2
+};
+
+class FlowConfig {
+  constructor(flowRoutine, { repeatTimes = 0, fallback = FLOW_FALLBACK.RECOVER } = {}) {
+    this.repeatTimes = repeatTimes;
+    this.fallback = fallback;
+    this.flowRoutine = flowRoutine;
+  }
+
+  build() {
+    return [this.repeatTimes, this.fallback, this.flowRoutine.map((routine) => routine.build()).join(',')];
+  }
+}
+
 class Bulb extends EventEmitter {
   constructor(ip, port) {
     super();
@@ -37,6 +86,7 @@ class Bulb extends EventEmitter {
   _onData(data) {
     try {
       const r = JSON.parse(data.toString());
+      console.log(r);
       if (r && r.method && this.messageHandler[r.method]) {
         this.messageHandler[r.method](r.params);
         this.emit('props', this);
@@ -125,6 +175,13 @@ class Bulb extends EventEmitter {
     });
   }
 
+  flow(flowConfig) {
+    this.sendCmd({
+      params: flowConfig.build(),
+      method: 'start_cf'
+    });
+  }
+
   sendCmd(cmd) {
     cmd.id = this.cmdId++;
     this.waitingRequest.set(cmd.id, cmd);
@@ -171,6 +228,11 @@ const base = (l1, cb, toBeCalled) => {
 
 module.exports = {
   Bulb,
+  FlowConfig,
+  FlowExpression,
+  Rgb,
+  EXPRESSION_MODE,
+  FLOW_FALLBACK,
   toggle: (ip, cb) => {
     const l1 = new Bulb(ip);
     base(l1, cb, l1.toggle.bind(l1));
